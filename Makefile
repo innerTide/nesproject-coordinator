@@ -19,5 +19,7 @@ viewrssi3d: ViewRSSI3D.class
 viewrssi: ViewRSSI.class
 	make login | java ViewRSSI
 
+	
+CONTIKI_WITH_RIME = 1
 include $(CONTIKI)/Makefile.include
 
