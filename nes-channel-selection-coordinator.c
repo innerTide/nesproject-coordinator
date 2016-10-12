@@ -20,6 +20,7 @@
 #include "net/netstack.h"
 #include "cc2420.h"
 #include "cc2420_const.h"
+#include <stdlib.h>
 #include "dev/spi.h"
 #include <stdio.h>
 #include <string.h>
@@ -34,31 +35,12 @@
 /*---------------------------------------------------------------------------*/
 /* This is a set of global variables for this laboratory*/
 
-int currentChannel = 11;
+int currentChannel = 26;
 unsigned int selectionCounter = 0;
 char instructionBuff [6];
 
 /*---------------------------------------------------------------------------*/
 /* This assumes that the CC2420 is always on and "stable" */
-static void set_frq(int c)
-{
-	int f;
-	/* We can read even other channels with CC2420! */
-	/* Fc = 2048 + FSCTRL  ;  Fc = 2405 + 5(k-11) MHz, k=11,12, ... , 26 */
-	f = c*5 + 357; /* Start from 2405 MHz to 2480 MHz, step by 5*/
-	
-	/* Write the new channel value */
-	CC2420_SPI_ENABLE();
-	SPI_WRITE_FAST(CC2420_FSCTRL);
-	SPI_WRITE_FAST((uint8_t)(f >> 8));
-	SPI_WRITE_FAST((uint8_t)(f & 0xff));
-	SPI_WAITFORTx_ENDED();
-	SPI_WRITE(0);
-	
-	/* Send the strobe */
-	SPI_WRITE(CC2420_SRXON);
-	CC2420_SPI_DISABLE();
-}
 
 static void instruction_generator (int preferredChannel, int selectionCounter){
 	instructionBuff[0]='C';
@@ -69,20 +51,26 @@ static void instruction_generator (int preferredChannel, int selectionCounter){
 	instructionBuff[5]='\0';
 }
 
+
+/*---------------------------------------------------------------------------*/
+/* Reversed linear scan*/
 static int find_channel_algorithm_0(void)
 {
 	int channel;
 	int preferredChannel=0;
 	int minRssiChannel=0;
 	int minRssi=100;
-	for(channel = 15; channel >= 0; channel--) {
-		set_frq(channel);
+	for(channel = 26; channel >= 11; channel--) {
+		cc2420_set_channel(channel);
 		int tmp = cc2420_rssi()+100;
+		if (DEBUG){
+			tmp = rand() % 100 ;
+		}
 		if (tmp <minRssi){
 			minRssi = tmp;
-			minRssiChannel = channel + 11;
+			minRssiChannel = channel;
 			if (tmp < RSSI_THRESHOLD){
-				preferredChannel = channel + 11;
+				preferredChannel = channel;
 				printf ("The best channel is CH-%d and RSSI is %d.\n",preferredChannel,tmp);
 				break;
 			}
@@ -93,6 +81,18 @@ static int find_channel_algorithm_0(void)
 		printf ("The least bad channel is CH-%d.\n", preferredChannel);
 	}
 	return preferredChannel;
+}
+
+
+/*---------------------------------------------------------------------------*/
+/* Wifi avoidance*/
+static int find_channel_algorithm_1 (void)
+{
+	int channel;
+	int preferredChannel=0;
+	int minRssiChannel=0;
+	int minRssi=100;
+	
 }
 
 /*---------------------------------------------------------------------------*/
@@ -123,7 +123,7 @@ PROCESS_THREAD(channel_selector, ev, data)
 	cc2420_on();
 	
 	while(1) {
-		etimer_set (&etScan, CLOCK_SECOND*10);
+		etimer_set (&etScan, CLOCK_SECOND*100);
 		PROCESS_WAIT_EVENT_UNTIL(etimer_expired(&etScan));
 		int preferredChannel = find_channel_algorithm_0();
 		if (DEBUG || currentChannel!=preferredChannel){
@@ -134,12 +134,23 @@ PROCESS_THREAD(channel_selector, ev, data)
 			 * First digit:C
 			 * Second and third digit: Channel number, e.g. 17
 			 * Last 2 digit: Channel selection counter.
+			 * This rule is implemented in instruction_generator()
 			 */
+			
 			instruction_generator(preferredChannel,selectionCounter);
+			
 			packetbuf_copyfrom(instructionBuff, 6);
+			
+			/*Return to initial channel to broadcast channel change inst.*/
+			cc2420_set_channel(currentChannel);
+			
 			broadcast_send(&broadcast);
 			printf ("instruction : %s is broadcasted!\n",instructionBuff);
+			
 			currentChannel=preferredChannel;
+			
+			/*Change to best channel*/
+			cc2420_set_channel(currentChannel);
 			selectionCounter = (selectionCounter+1)%100;
 		}
 		else{
