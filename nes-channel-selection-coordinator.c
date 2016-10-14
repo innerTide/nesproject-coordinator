@@ -10,7 +10,7 @@
  * \author
  *         Joakim Eriksson, joakime@sics.se
  *          Adam Dunkels, adam@sics.se
- * 			Yuefeng Wu, y.wu.5@student.tue.nl
+ *         Yuefeng Wu, y.wu.5@student.tue.nl
  */
 
 #include "contiki.h"
@@ -29,8 +29,11 @@
 /*---------------------------------------------------------------------------*/
 /* This is a set of predefined values for this laboratory*/
 
-#define RSSI_THRESHOLD 20
+#define RSSI_THRESHOLD 30
 #define DEBUG 1
+#define AVERAGE_COUNT 4
+#define TOTAL_DELAY_TIME 256 /*Unit: uSec*/
+#define SCAN_ALGORITHM 0 /*0 for Reversed Scan; 1 for Wi-Fi Aviodance; 2 for Greedy*/
 
 /*---------------------------------------------------------------------------*/
 /* This is a set of global variables for this laboratory*/
@@ -40,7 +43,7 @@ unsigned int selectionCounter = 0;
 char instructionBuff [6];
 
 /*---------------------------------------------------------------------------*/
-/* This assumes that the CC2420 is always on and "stable" */
+/* This is to generate the inst. to other clients */
 
 static void instruction_generator (int preferredChannel, int selectionCounter){
 	instructionBuff[0]='C';
@@ -51,6 +54,17 @@ static void instruction_generator (int preferredChannel, int selectionCounter){
 	instructionBuff[5]='\0';
 }
 
+/*---------------------------------------------------------------------------*/
+/* This is to calculate the average RSSI*/
+static int cc2420_average_rssi(){
+    int averagedRssi = 0;
+    int i;
+    for (i=0; i < AVERAGE_COUNT; i++){
+        averagedRssi = averagedRssi + cc2420_rssi();
+        clock_delay_usec (TOTAL_DELAY_TIME/AVERAGE_COUNT);
+    }
+    return averagedRssi/AVERAGE_COUNT;
+}
 
 /*---------------------------------------------------------------------------*/
 /* Reversed linear scan*/
@@ -63,10 +77,13 @@ static int find_channel_algorithm_0(void)
 	for(channel = 26; channel >= 11; channel--) {
 		cc2420_set_channel(channel);
 		int tmp = cc2420_rssi()+100;
-		if (DEBUG){
-			tmp = rand() % 100 ;
-		}
-		if (tmp <minRssi){
+                
+                #if DEBUG
+                /*This part of code is for debugging only.*/
+                tmp = rand() % 100 ;
+                #endif
+		
+                if (tmp <minRssi){
 			minRssi = tmp;
 			minRssiChannel = channel;
 			if (tmp < RSSI_THRESHOLD){
@@ -88,11 +105,117 @@ static int find_channel_algorithm_0(void)
 /* Wifi avoidance*/
 static int find_channel_algorithm_1 (void)
 {
-	int channel;
 	int preferredChannel=0;
 	int minRssiChannel=0;
 	int minRssi=100;
-	
+        unsigned char channlScanOrderArray[16] = {26,25,20,15,24,23,22,21,19,18,17,16,14,13,12,11};
+        int i;
+        for(i=0; i<16; i++) {
+            cc2420_set_channel((int) channlScanOrderArray[i]);
+            int tmp = cc2420_rssi()+100;
+            #if DEBUG
+            /*This part of code is for debugging only.*/
+            tmp = rand() % 100 ;
+            #endif
+            if (tmp <minRssi){
+                minRssi = tmp;
+                minRssiChannel = (int) channlScanOrderArray[i];
+                if (tmp < RSSI_THRESHOLD){
+                    preferredChannel = (int) channlScanOrderArray[i];
+                    printf ("The best channel is CH-%d and RSSI is %d.\n",preferredChannel,tmp);
+                    break;
+                }
+            }
+        }
+        if (preferredChannel==0){
+            preferredChannel = minRssiChannel;
+            printf ("The least bad channel is CH-%d.\n", preferredChannel);
+        }
+        return preferredChannel;
+}
+
+/*---------------------------------------------------------------------------*/
+/*Greedy Scan*/
+static int find_channel_algorithm_2 (void){
+    int preferredChannel=0;
+    int minRssiChannel=0;
+    int minRssi=100;
+    unsigned char middleChannels[3] = {13,18,23};
+    
+    /*We need to firstly obtain the RSSI of CH-26 to chech if it is feasiable*/
+    cc2420_set_channel(26);
+    int rssiCh_26 = cc2420_rssi()+100;
+    if (rssiCh_26 < RSSI_THRESHOLD){
+        printf ("The best channel is CH-26 and RSSI is %d.\n",rssiCh_26);
+        return 26;
+    }
+    
+    int i;
+    for(i=0; i<3; i++) {
+        cc2420_set_channel((int) middleChannels[i]);
+        int tmp = cc2420_rssi()+100;
+        
+        if (tmp <minRssi){
+            minRssi = tmp;
+            minRssiChannel = (int) middleChannels[i];
+            if (tmp < RSSI_THRESHOLD){
+                preferredChannel = (int) middleChannels[i] ;
+                printf ("The best channel is CH-%d and RSSI is %d.\n",preferredChannel,tmp);
+                break;
+            }
+        }
+        
+    }
+    return preferredChannel;
+    
+    
+    if ((preferredChannel==0) && (minRssiChannel!=26)){
+        
+        int leftSideRssi,rightSideRssi;
+        
+        /*Begin to exam the channel on the left*/
+        cc2420_set_channel (minRssiChannel-1);
+        leftSideRssi = cc2420_rssi()+100;
+        if (leftSideRssi < RSSI_THRESHOLD){
+            printf ("The best channel is CH-%d and RSSI is %d.\n",minRssiChannel-1,leftSideRssi);
+            return minRssiChannel - 1;
+        }
+        
+        /*Begin to exam the channel on the right*/
+        cc2420_set_channel (minRssiChannel+1);
+        rightSideRssi = cc2420_rssi()+100;
+        if (rightSideRssi < RSSI_THRESHOLD){
+            printf ("The best channel is CH-%d and RSSI is %d.\n",minRssiChannel+1,rightSideRssi);
+            return minRssiChannel + 1;
+        }
+        
+        
+        if (leftSideRssi > rightSideRssi){
+            cc2420_set_channel(minRssiChannel + 2);
+            int tmp = cc2420_rssi() + 100;
+            if (tmp < rightSideRssi){
+                printf ("The least bad channel is CH-%d.\n", minRssiChannel+2);
+                return minRssiChannel + 2;
+            }
+            else{
+                printf ("The least bad channel is CH-%d.\n", minRssiChannel+1);
+                return minRssiChannel + 1;
+            }
+        }
+        else{
+            cc2420_set_channel(minRssiChannel - 2);
+            int tmp = cc2420_rssi() + 100;
+            if (tmp < leftSideRssi){
+                printf ("The least bad channel is CH-%d.\n", minRssiChannel-2);
+                return minRssiChannel - 2;
+            }
+            else{
+                printf ("The least bad channel is CH-%d.\n", minRssiChannel-1);
+                return minRssiChannel - 1;
+            }
+        }
+        
+    }
 }
 
 /*---------------------------------------------------------------------------*/
@@ -125,7 +248,23 @@ PROCESS_THREAD(channel_selector, ev, data)
 	while(1) {
 		etimer_set (&etScan, CLOCK_SECOND*100);
 		PROCESS_WAIT_EVENT_UNTIL(etimer_expired(&etScan));
-		int preferredChannel = find_channel_algorithm_0();
+
+                #if SCAN_ALGORITHM==0
+                int preferredChannel = find_channel_algorithm_0();
+
+                #elif SCAN_ALGORITHM==1
+                int preferredChannel = find_channel_algorithm_1();
+
+                #elif SCAN_ALGORITHM==2
+                int preferredChannel = find_channel_algorithm_2();
+                
+
+                #else
+                printf ("Macro is wrong, use algorithm 0!\n");
+                int preferredChannel = find_channel_algorithm_0();
+
+                #endif
+                
 		if (DEBUG || currentChannel!=preferredChannel){
 			printf("Need to change channel!\n");
 			
