@@ -30,7 +30,7 @@
 /* This is a set of predefined values for this laboratory*/
 
 #define PREFERRED_CHANNEL_RSSI_THRESHOLD 20
-#define DEBUG 0
+#define DEBUG 1
 #define AVERAGE_COUNT 32
 #define WORKING_SCAN_COUNT 16
 #define TOTAL_DELAY_TIME 1397 /*Unit: uSec*/
@@ -282,7 +282,7 @@ PROCESS_THREAD(channel_selector, ev, data)
 	while(1) {
 		etimer_set (&etScan, CLOCK_SECOND*10);
 		PROCESS_WAIT_EVENT_UNTIL(etimer_expired(&etScan));
-                broadcast_close(&broadcast);
+                //broadcast_close(&broadcast);
                 /*This is to broadcast inst. to clients to stop communication*/
                 packetbuf_copyfrom("Stop", 5);
                 broadcast_send(&broadcast);
@@ -326,6 +326,12 @@ PROCESS_THREAD(channel_selector, ev, data)
 			
 			broadcast_send(&broadcast);
 			printf ("Instruction : %s is broadcasted!\n",instructionBuff);
+                        packetbuf_copyfrom("Begin", 6);
+                        currentChannel=preferredChannel;
+                        
+                        /*Change to best channel*/
+                        cc2420_set_channel(currentChannel);
+                        selectionCounter = (selectionCounter+1)%100;
                         
 		}
 		else{
@@ -333,7 +339,7 @@ PROCESS_THREAD(channel_selector, ev, data)
                     packetbuf_copyfrom("Begin", 6);
                     broadcast_send(&broadcast);
 		}
-		broadcast_open(&broadcast, 129, &broadcast_call);
+		//broadcast_open(&broadcast, 129, &broadcast_call);
 	}
 	
 	PROCESS_END();
