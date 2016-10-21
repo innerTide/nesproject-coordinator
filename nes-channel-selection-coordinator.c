@@ -30,11 +30,11 @@
 /* This is a set of predefined values for this laboratory*/
 
 #define PREFERRED_CHANNEL_RSSI_THRESHOLD 20
-#define DEBUG 1
+#define DEBUG 0
 #define AVERAGE_COUNT 32
-#define WORKING_SCAN_COUNT 16
+#define WORKING_SCAN_COUNT 512
 #define TOTAL_DELAY_TIME 1397 /*Unit: uSec*/
-#define SCAN_ALGORITHM 0 /*0 for Reversed Scan; 1 for Wi-Fi Aviodance; 2 for Greedy*/
+#define SCAN_ALGORITHM 2 /*0 for Reversed Scan; 1 for Wi-Fi Aviodance; 2 for Greedy*/
 
 /*---------------------------------------------------------------------------*/
 /* This is a set of global variables for this laboratory*/
@@ -280,13 +280,13 @@ PROCESS_THREAD(channel_selector, ev, data)
 	cc2420_on();
 	
 	while(1) {
-		etimer_set (&etScan, CLOCK_SECOND*10);
+		etimer_set (&etScan, CLOCK_SECOND*5);
 		PROCESS_WAIT_EVENT_UNTIL(etimer_expired(&etScan));
                 //broadcast_close(&broadcast);
                 /*This is to broadcast inst. to clients to stop communication*/
                 packetbuf_copyfrom("Stop", 5);
                 broadcast_send(&broadcast);
-                etimer_set(&stopWait, CLOCK_SECOND*3);
+                etimer_set(&stopWait, CLOCK_SECOND*2);
                 PROCESS_WAIT_EVENT_UNTIL(etimer_expired(&stopWait));
 
                 #if SCAN_ALGORITHM==0
@@ -316,17 +316,27 @@ PROCESS_THREAD(channel_selector, ev, data)
 			 * Last 2 digit: Channel selection counter.
 			 * This rule is implemented in instruction_generator()
 			 */
+                        
+                        unsigned char broadcastCounter = 0;
+                        
+                        instruction_generator(preferredChannel,selectionCounter);
+                        
+                        for (broadcastCounter = 0 ; broadcastCounter < 3; broadcastCounter ++ ){
+                            
+                            packetbuf_copyfrom(instructionBuff, 6);
+                            
+                            /*Return to initial channel to broadcast channel change inst.*/
+                            cc2420_set_channel(currentChannel);
+                            
+                            broadcast_send(&broadcast);
+                        }
+                        
+                        /*As an old saying goes in China, important things need to be said for THREE TIMES!
+                         *中国有句话说，重要的事情说三遍！
+                         */
 			
-			instruction_generator(preferredChannel,selectionCounter);
-			
-			packetbuf_copyfrom(instructionBuff, 6);
-			
-			/*Return to initial channel to broadcast channel change inst.*/
-			cc2420_set_channel(currentChannel);
-			
-			broadcast_send(&broadcast);
-			printf ("Instruction : %s is broadcasted!\n",instructionBuff);
-                        packetbuf_copyfrom("Begin", 6);
+
+			printf ("Instruction : %s is broadcasted for 3 times!\n",instructionBuff);
                         currentChannel=preferredChannel;
                         
                         /*Change to best channel*/
