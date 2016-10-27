@@ -34,7 +34,7 @@
 #define AVERAGE_COUNT 32
 #define WORKING_SCAN_COUNT 512
 #define TOTAL_DELAY_TIME 1397 /*Unit: uSec*/
-#define SCAN_ALGORITHM 2 /*0 for Reversed Scan; 1 for Wi-Fi Aviodance; 2 for Greedy*/
+#define SCAN_ALGORITHM 0/*0 for Reversed Scan; 1 for Wi-Fi Aviodance; 2 for Greedy*/
 
 /*---------------------------------------------------------------------------*/
 /* This is a set of global variables for this laboratory*/
@@ -288,6 +288,7 @@ PROCESS_THREAD(channel_selector, ev, data)
                 broadcast_send(&broadcast);
                 etimer_set(&stopWait, CLOCK_SECOND*2);
                 PROCESS_WAIT_EVENT_UNTIL(etimer_expired(&stopWait));
+                printf("Begin Scan!!\n");
 
                 #if SCAN_ALGORITHM==0
                 int preferredChannel = find_channel_algorithm_0();
@@ -304,7 +305,7 @@ PROCESS_THREAD(channel_selector, ev, data)
                 int preferredChannel = find_channel_algorithm_0();
 
                 #endif
-                
+                printf ("Scan Ends!!\n");
                 
 		if (DEBUG || currentChannel!=preferredChannel){
 			printf("Need to change channel!\n");
